@@ -16,16 +16,27 @@ export interface FirebaseEnvStatus {
 }
 
 // Configuración de credenciales de Firebase leídas desde variables de entorno VITE_FIREBASE_*
+// con valores por defecto del proyecto dek-novacore proporcionados por el usuario
 const env = import.meta.env;
 
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyBuT1NzljHU53CqkFImuOYEDihpFA9wC20',
+  authDomain: 'dek-novacore.firebaseapp.com',
+  projectId: 'dek-novacore',
+  storageBucket: 'dek-novacore.firebasestorage.app',
+  messagingSenderId: '497303288327',
+  appId: '1:497303288327:web:9a8f3cf6a3b43c969348a2',
+  measurementId: '',
+};
+
 export const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || '',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: env.VITE_FIREBASE_APP_ID || '',
-  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || '',
+  apiKey: env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
+  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || DEFAULT_FIREBASE_CONFIG.measurementId,
 };
 
 /**
