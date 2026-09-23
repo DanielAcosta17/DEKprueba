@@ -20,6 +20,7 @@ import {
   Home,
   Link2,
   Copy,
+  ClipboardPaste,
   AlertTriangle,
   ArrowRight,
   Search,
@@ -141,11 +142,56 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
   // Extracts and sanitizes input when user types or pastes a slug or full URL
   const handleSlugInputChange = (inputVal: string) => {
-    const cleaned = extractCleanSlug(inputVal);
-    setFormData((prev) => ({
-      ...prev,
-      slug: cleaned,
-    }));
+    // If input looks like a URL, hash, path or contains spaces/symbols, extract the clean slug
+    if (
+      inputVal.includes('/') ||
+      inputVal.includes('#') ||
+      inputVal.includes('?') ||
+      inputVal.includes(':') ||
+      inputVal.includes(' ') ||
+      inputVal.includes('.') ||
+      /^(?:https?:)?\/\//i.test(inputVal)
+    ) {
+      const cleaned = extractCleanSlug(inputVal);
+      setFormData((prev) => ({
+        ...prev,
+        slug: cleaned,
+      }));
+    } else {
+      // Normal typing: keep lowercased, allow letters, numbers, and hyphens without prematurely trimming
+      const sanitized = inputVal
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]/g, '-');
+      setFormData((prev) => ({
+        ...prev,
+        slug: sanitized,
+      }));
+    }
+  };
+
+  // Helper to paste text from system clipboard directly into any field
+  const handlePasteClipboard = async (
+    e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement> | null,
+    setter: (val: string) => void,
+    isSlug = false
+  ) => {
+    let text = '';
+    if (e && e.clipboardData) {
+      text = e.clipboardData.getData('text');
+    } else {
+      try {
+        text = await navigator.clipboard.readText();
+      } catch (err) {
+        console.warn('Clipboard read error or not permitted:', err);
+      }
+    }
+    if (text) {
+      if (isSlug) {
+        handleSlugInputChange(text);
+      } else {
+        setter(text.trim());
+      }
+    }
   };
 
   const copyToClipboard = (text: string, identifier: string) => {
@@ -291,8 +337,24 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
               placeholder="Pega el enlace o slug del negocio..."
               value={directUrlQuery}
               onChange={(e) => setDirectUrlQuery(e.target.value)}
-              className="w-full pl-8.5 pr-3 py-2 bg-[#0f1722] border border-slate-700 rounded-xl text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
+              onPaste={(e) => {
+                const text = e.clipboardData.getData('text');
+                if (text) {
+                  e.preventDefault();
+                  setDirectUrlQuery(text.trim());
+                }
+              }}
+              className="w-full pl-8.5 pr-14 py-2 bg-[#0f1722] border border-slate-700 rounded-xl text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
             />
+            <button
+              type="button"
+              onClick={() => handlePasteClipboard(null, (val) => setDirectUrlQuery(val))}
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-sky-300 font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition-colors"
+              title="Pegar enlace del portapapeles"
+            >
+              <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
+              <span>Pegar</span>
+            </button>
           </div>
           <button
             type="submit"
@@ -576,18 +638,36 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-sky-200 mb-1">
-                    Enlace / Slug Público (URL) *
-                  </label>
-                  <div className="flex items-center bg-[#0f1722] border border-slate-700 rounded-xl px-2.5">
-                    <span className="text-sky-400 text-[11px] font-mono">/negocio/</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-sky-200">
+                      Enlace / Slug Público (URL) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handlePasteClipboard(null, (val) => handleSlugInputChange(val), true)}
+                      className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                      title="Pegar enlace o URL copiada del portapapeles"
+                    >
+                      <ClipboardPaste className="w-3 h-3 text-sky-400" />
+                      <span>Pegar Link</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center bg-[#0f1722] border border-slate-700 rounded-xl px-2.5 focus-within:ring-1 focus-within:ring-sky-400 focus-within:border-sky-500 transition-all">
+                    <span className="text-sky-400 text-[11px] font-mono shrink-0 select-none">/negocio/</span>
                     <input
                       type="text"
                       required
                       placeholder="dulce-encanto"
                       value={formData.slug || ''}
                       onChange={(e) => handleSlugInputChange(e.target.value)}
-                      className="w-full px-1 py-2 bg-transparent text-white font-mono focus:outline-none"
+                      onPaste={(e) => {
+                        const text = e.clipboardData.getData('text');
+                        if (text) {
+                          e.preventDefault();
+                          handleSlugInputChange(text);
+                        }
+                      }}
+                      className="w-full px-1.5 py-2 bg-transparent text-white font-mono focus:outline-none"
                     />
                   </div>
                 </div>
@@ -704,13 +784,33 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
               {/* Logo URL and Cover URL */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold text-sky-200 mb-1">
-                    URL del Logotipo
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-sky-200">
+                      URL del Logotipo
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handlePasteClipboard(null, (val) => setFormData((prev) => ({ ...prev, logoUrl: val })))}
+                      className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                      title="Pegar URL del logotipo"
+                    >
+                      <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
+                      <span>Pegar</span>
+                    </button>
+                  </div>
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    placeholder="https://ejemplo.com/logo.png"
                     value={formData.logoUrl || ''}
                     onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData('text');
+                      if (text) {
+                        e.preventDefault();
+                        setFormData((prev) => ({ ...prev, logoUrl: text.trim() }));
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400"
                   />
                   {formData.logoUrl && (
@@ -723,13 +823,33 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-sky-200 mb-1">
-                    URL Imagen de Portada (Banner)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-sky-200">
+                      URL Imagen de Portada (Banner)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handlePasteClipboard(null, (val) => setFormData((prev) => ({ ...prev, coverUrl: val })))}
+                      className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                      title="Pegar URL de portada"
+                    >
+                      <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
+                      <span>Pegar</span>
+                    </button>
+                  </div>
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    placeholder="https://images.unsplash.com/..."
                     value={formData.coverUrl || ''}
                     onChange={(e) => setFormData({ ...formData, coverUrl: e.target.value })}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData('text');
+                      if (text) {
+                        e.preventDefault();
+                        setFormData((prev) => ({ ...prev, coverUrl: text.trim() }));
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400"
                   />
                 </div>
@@ -767,19 +887,38 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
               {/* External Website / Link */}
               <div>
-                <label className="block font-semibold text-sky-200 mb-1">
-                  Enlace de Sitio Web Externo / Dominio Propio (Opcional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-sky-200">
+                    Enlace de Sitio Web Externo / Dominio Propio (Opcional)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handlePasteClipboard(null, (val) => setFormData((prev) => ({ ...prev, websiteUrl: val })))}
+                    className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                    title="Pegar enlace de sitio web"
+                  >
+                    <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
+                    <span>Pegar URL</span>
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-sky-400">
                       <Globe className="w-4 h-4" />
                     </div>
                     <input
-                      type="url"
+                      type="text"
+                      inputMode="url"
                       placeholder="https://tudominio.com o https://misitio.com"
                       value={formData.websiteUrl || ''}
                       onChange={(e) => setFormData({ ...formData, websiteUrl: e.target.value })}
+                      onPaste={(e) => {
+                        const text = e.clipboardData.getData('text');
+                        if (text) {
+                          e.preventDefault();
+                          setFormData((prev) => ({ ...prev, websiteUrl: text.trim() }));
+                        }
+                      }}
                       className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400 text-xs"
                     />
                   </div>

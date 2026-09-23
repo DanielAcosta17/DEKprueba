@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
+  ClipboardPaste,
 } from 'lucide-react';
 import { Product } from '../../types';
 import { useBusiness } from '../../contexts/BusinessContext';
@@ -457,15 +458,42 @@ export const ProductManagerView: React.FC<ProductManagerViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-sky-200 mb-1">
-                  URL de la Imagen del Producto *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-sky-200">
+                    URL de la Imagen del Producto *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (text) setFormData((prev) => ({ ...prev, imageUrl: text.trim() }));
+                      } catch (err) {
+                        console.warn('Clipboard read unavailable:', err);
+                      }
+                    }}
+                    className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                    title="Pegar enlace de imagen"
+                  >
+                    <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
+                    <span>Pegar URL</span>
+                  </button>
+                </div>
                 <input
-                  type="url"
+                  type="text"
+                  inputMode="url"
                   required
+                  placeholder="https://images.unsplash.com/... o https://..."
                   value={formData.imageUrl || ''}
                   onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none"
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData('text');
+                    if (text) {
+                      e.preventDefault();
+                      setFormData((prev) => ({ ...prev, imageUrl: text.trim() }));
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400"
                 />
                 {formData.imageUrl && (
                   <img

@@ -68,19 +68,62 @@ const BusinessContext = createContext<BusinessContextType | undefined>(undefined
 export const extractCleanSlug = (input: string): string => {
   if (!input) return '';
   let cleaned = input.trim();
+
+  // Try parsing as URL if starts with http://, https://, or //
+  if (/^(?:https?:)?\/\//i.test(cleaned)) {
+    try {
+      // Ensure protocol for valid URL constructor
+      const fullUrl = cleaned.startsWith('//') ? `https:${cleaned}` : cleaned;
+      const url = new URL(fullUrl);
+
+      // Case A: Hash present: e.g. #negocio/mi-slug or #mi-slug
+      if (url.hash) {
+        const hashClean = url.hash.replace(/^#\/?(?:negocio|tienda)?\/?/i, '').split('?')[0];
+        if (hashClean && hashClean !== 'admin' && hashClean !== 'inicio') {
+          cleaned = hashClean;
+        }
+      }
+
+      // Case B: If not resolved by hash, check pathname: e.g. /negocio/mi-slug or /mi-slug
+      if (/^(?:https?:)?\/\//i.test(cleaned)) {
+        const pathClean = url.pathname.replace(/^\/?(?:negocio|tienda)?\/?/i, '').replace(/^\/+|\/+$/g, '');
+        if (pathClean && pathClean !== 'admin' && pathClean !== 'inicio') {
+          const segments = pathClean.split('/').filter(Boolean);
+          cleaned = segments[segments.length - 1] || segments[0] || '';
+        } else {
+          // Case C: Root or no path: extract from subdomain/hostname (e.g. mi-negocio.vercel.app -> mi-negocio)
+          const hostParts = url.hostname.split('.');
+          if (hostParts.length > 2 && hostParts[0] !== 'www') {
+            cleaned = hostParts[0];
+          } else if (hostParts.length >= 2) {
+            cleaned = hostParts[0] === 'www' ? hostParts[1] : hostParts[0];
+          } else {
+            cleaned = url.hostname;
+          }
+        }
+      }
+    } catch {
+      cleaned = cleaned.replace(/^(?:https?:)?\/\//i, '');
+    }
+  }
+
+  // Handle generic hash or query string if remaining
   if (cleaned.includes('#')) {
     cleaned = cleaned.split('#')[1] || '';
   }
   if (cleaned.includes('?')) {
     cleaned = cleaned.split('?')[0] || '';
   }
-  cleaned = cleaned.replace(/^https?:\/\/[^/]+/i, '');
   cleaned = cleaned.replace(/^\/?(?:negocio|tienda)\//i, '');
   cleaned = cleaned.replace(/^\/+|\/+$/g, '');
+
   return cleaned
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
     .trim();
 };
 
