@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered administrator or client user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "owner"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "email", "role"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Business profile for digital catalog, menu or website",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "slug": { "type": "string", "maxLength": 64, "pattern": "^[a-z0-9-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "businessType": { "type": "string", "maxLength": 50 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "logoUrl": { "type": "string", "maxLength": 1024 },
+        "coverUrl": { "type": "string", "maxLength": 1024 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 200 },
+        "schedule": { "type": "string", "maxLength": 150 },
+        "instagram": { "type": "string", "maxLength": 100 },
+        "facebook": { "type": "string", "maxLength": 100 },
+        "tiktok": { "type": "string", "maxLength": 100 },
+        "primaryColor": { "type": "string", "maxLength": 20 },
+        "secondaryColor": { "type": "string", "maxLength": 20 },
+        "template": { "type": "string", "enum": ["restaurant", "bakery", "fashion", "hardware", "general"] },
+        "isActive": { "type": "boolean" },
+        "currency": { "type": "string", "maxLength": 5 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "slug", "name", "businessType", "template", "whatsapp", "isActive"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category belonging to a business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 60 },
+        "description": { "type": "string", "maxLength": 200 },
+        "icon": { "type": "string", "maxLength": 50 },
+        "sortOrder": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "businessId", "name", "isActive"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog item or menu dish",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 800 },
+        "price": { "type": "number" },
+        "comparePrice": { "type": "number" },
+        "imageUrl": { "type": "string", "maxLength": 1024 },
+        "tags": { "type": "array" },
+        "isFeatured": { "type": "boolean" },
+        "isAvailable": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "categoryId", "name", "price", "isAvailable"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order or inquiry forwarded via WhatsApp",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "contacted", "completed", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "items", "totalAmount", "status"]
+    }
+  },
+  "firestore": {
+    "/businesses/{businessId}": {
+      "schema": { "$ref": "#/entities/Business" },
+      "description": "Public business profiles and configuration"
+    },
+    "/businesses/{businessId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Categories created within a specific business"
+    },
+    "/businesses/{businessId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Products and dishes cataloged under a business"
+    },
+    "/businesses/{businessId}/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Orders logged for this business"
+    }
+  }
+}

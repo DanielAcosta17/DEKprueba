@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Función auxiliar para verificar sesión con Firebase Authentication
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 1. CONTROL TOTAL DE ADMINISTRADOR (Crear, Editar, Eliminar y Leer en TODO el panel)
+    // Cuando inicias sesión con tu usuario de Firebase Auth, tienes permisos completos en todas las colecciones.
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // 2. ACCESO PÚBLICO PARA CLIENTES (Para que puedan ver la tienda pública y hacer pedidos)
+    match /businesses/{businessId} {
+      allow read: if true;
+
+      match /categories/{categoryId} {
+        allow read: if true;
+      }
+
+      match /products/{productId} {
+        allow read: if true;
+      }
+
+      match /orders/{orderId} {
+        allow create: if true;
+      }
+    }
+
+    // Colecciones raíz para sincronización y catálogo
+    match /categories/{categoryId} {
+      allow read: if true;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+    }
+
+    match /orders/{orderId} {
+      allow create: if true;
+    }
+  }
+}
+

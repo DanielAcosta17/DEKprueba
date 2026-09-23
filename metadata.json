@@ -1,0 +1,6 @@
+{
+  "name": "D. E. K NovaCore",
+  "description": "Plataforma SaaS para creación y gestión de catálogos digitales, menús QR y sitios web para negocios con pedidos por WhatsApp y Firebase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
