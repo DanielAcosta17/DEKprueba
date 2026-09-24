@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Business, Category, Product, Order, TemplateType } from '../types';
 import { DataService } from '../firebase/service';
 
@@ -23,6 +23,7 @@ interface BusinessContextType {
   goToLanding: () => void;
   goToAdmin: () => void;
   goToPublicStore: (slug: string) => void;
+  openBusinessWebsite: (biz: Business | string) => void;
   setSelectedBusinessId: (id: string) => void;
   
   // Business CRUD
@@ -179,16 +180,25 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 1500);
 
     const unsubBiz = DataService.subscribeBusinesses((bizList) => {
-      setBusinesses(bizList);
+      // Deduplicate businesses by id to prevent duplicate entries
+      const seen = new Set<string>();
+      const cleanList: Business[] = [];
+      for (const b of bizList) {
+        if (!b || !b.id || seen.has(b.id)) continue;
+        seen.add(b.id);
+        cleanList.push(b);
+      }
+
+      setBusinesses(cleanList);
       setSelectedBusinessId((prev) => {
         if (currentPublicSlug) {
-          const match = bizList.find((b) => b.slug.toLowerCase() === currentPublicSlug.toLowerCase());
+          const match = cleanList.find((b) => b.slug.toLowerCase() === currentPublicSlug.toLowerCase());
           if (match) return match.id;
         }
-        if (prev && bizList.some((b) => b.id === prev)) {
+        if (prev && cleanList.some((b) => b.id === prev)) {
           return prev;
         }
-        return bizList.length > 0 ? bizList[0].id : '';
+        return cleanList.length > 0 ? cleanList[0].id : '';
       });
       setIsLoading(false);
     });
@@ -241,6 +251,13 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const goToPublicStore = (slugOrUrl: string) => {
+    // If a full external URL is passed, open it directly
+    if (/^(?:https?:)?\/\//i.test(slugOrUrl)) {
+      const full = slugOrUrl.startsWith('//') ? `https:${slugOrUrl}` : slugOrUrl;
+      window.open(full, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     const cleanSlug = extractCleanSlug(slugOrUrl);
     setCurrentPublicSlug(cleanSlug);
     const found = businesses.find(
@@ -257,6 +274,37 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Helper to open the business's website (redirects to external web page if configured, or internal store)
+  const openBusinessWebsite = (biz: Business | string) => {
+    let targetBiz: Business | undefined;
+    let targetUrl = '';
+
+    if (typeof biz === 'string') {
+      if (/^(?:https?:)?\/\//i.test(biz)) {
+        targetUrl = biz.startsWith('//') ? `https:${biz}` : biz;
+      } else {
+        const clean = extractCleanSlug(biz);
+        targetBiz = businesses.find(
+          (b) => extractCleanSlug(b.slug) === clean || b.slug.toLowerCase() === clean.toLowerCase() || b.id === clean
+        );
+      }
+    } else {
+      targetBiz = biz;
+    }
+
+    if (targetBiz && targetBiz.websiteUrl && targetBiz.websiteUrl.trim()) {
+      targetUrl = targetBiz.websiteUrl.startsWith('http') ? targetBiz.websiteUrl : `https://${targetBiz.websiteUrl}`;
+    }
+
+    if (targetUrl) {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    } else if (targetBiz) {
+      goToPublicStore(targetBiz.slug);
+    } else if (typeof biz === 'string') {
+      goToPublicStore(biz);
+    }
+  };
+
   const getBusinessBySlug = (slugOrUrl: string) => {
     const clean = extractCleanSlug(slugOrUrl);
     return businesses.find(
@@ -264,65 +312,98 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
+  // Guard against duplicate creation triggered in rapid succession
+  const isCreatingBusinessRef = useRef(false);
+
   // Business CRUD
   const createBusiness = async (bizData: Partial<Business>): Promise<Business> => {
-    const rawSlug = (bizData.name || 'negocio')
-      .toLowerCase()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+    // Guard against simultaneous creation calls
+    if (isCreatingBusinessRef.current) {
+      console.warn('createBusiness already in flight, returning latest matching business');
+      const match = businesses.find(
+        (b) => b.name.trim().toLowerCase() === (bizData.name || '').trim().toLowerCase()
+      );
+      if (match) return match;
+    }
 
-    const finalSlug = extractCleanSlug(bizData.slug || rawSlug || 'mi-negocio');
+    isCreatingBusinessRef.current = true;
+    try {
+      const rawSlug = (bizData.name || 'negocio')
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
 
-    const newBiz: Business = {
-      id: 'biz-' + Date.now(),
-      slug: finalSlug,
-      name: bizData.name || 'Nuevo Negocio',
-      businessType: bizData.businessType || 'General',
-      tagline: bizData.tagline || 'Calidad y servicio garantizado',
-      description: bizData.description || 'Bienvenido a nuestro catálogo digital.',
-      logoUrl: bizData.logoUrl || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=300&auto=format&fit=crop&q=80',
-      coverUrl: bizData.coverUrl || 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&auto=format&fit=crop&q=80',
-      phone: bizData.phone || '+507 6024-4779',
-      whatsapp: bizData.whatsapp || '50760244779',
-      address: bizData.address || 'Ciudad de Panamá',
-      schedule: bizData.schedule || 'Lunes a Sábado: 9:00 AM - 6:00 PM',
-      websiteUrl: bizData.websiteUrl || '',
-      instagram: bizData.instagram || '',
-      facebook: bizData.facebook || '',
-      tiktok: bizData.tiktok || '',
-      primaryColor: bizData.primaryColor || '#253745',
-      secondaryColor: bizData.secondaryColor || '#F8FAFC',
-      template: (bizData.template as TemplateType) || 'general',
-      isActive: bizData.isActive ?? true,
-      currency: bizData.currency || '$',
-      deliveryAvailable: bizData.deliveryAvailable ?? true,
-      deliveryCost: bizData.deliveryCost ?? 3.0,
-      featuredNotice: bizData.featuredNotice || '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      const finalSlug = extractCleanSlug(bizData.slug || rawSlug || 'mi-negocio');
 
-    await DataService.saveBusiness(newBiz);
-    setBusinesses((prev) => [newBiz, ...prev]);
-    setSelectedBusinessId(newBiz.id);
+      // Check if business with same name was created within the last 8 seconds to prevent duplicates
+      const duplicate = businesses.find(
+        (b) =>
+          b.name.trim().toLowerCase() === (bizData.name || '').trim().toLowerCase() &&
+          Date.now() - new Date(b.createdAt).getTime() < 8000
+      );
+      if (duplicate) {
+        console.warn('Prevented duplicate business creation for:', bizData.name);
+        return duplicate;
+      }
 
-    // Create default category
-    const defaultCat: Category = {
-      id: 'cat-' + Date.now(),
-      businessId: newBiz.id,
-      name: 'Destacados',
-      description: 'Productos principales del catálogo',
-      icon: 'Star',
-      sortOrder: 1,
-      isActive: true,
-    };
-    await DataService.saveCategory(defaultCat);
-    setCategories((prev) => [...prev, defaultCat]);
+      const newBiz: Business = {
+        id: 'biz-' + Date.now(),
+        slug: finalSlug,
+        name: bizData.name || 'Nuevo Negocio',
+        businessType: bizData.businessType || 'General',
+        tagline: bizData.tagline || 'Calidad y servicio garantizado',
+        description: bizData.description || 'Bienvenido a nuestro catálogo digital.',
+        logoUrl: bizData.logoUrl || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=300&auto=format&fit=crop&q=80',
+        coverUrl: bizData.coverUrl || 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&auto=format&fit=crop&q=80',
+        phone: bizData.phone || '+507 6024-4779',
+        whatsapp: bizData.whatsapp || '50760244779',
+        address: bizData.address || 'Ciudad de Panamá',
+        schedule: bizData.schedule || 'Lunes a Sábado: 9:00 AM - 6:00 PM',
+        websiteUrl: bizData.websiteUrl || '',
+        instagram: bizData.instagram || '',
+        facebook: bizData.facebook || '',
+        tiktok: bizData.tiktok || '',
+        primaryColor: bizData.primaryColor || '#253745',
+        secondaryColor: bizData.secondaryColor || '#F8FAFC',
+        template: (bizData.template as TemplateType) || 'general',
+        isActive: bizData.isActive ?? true,
+        currency: bizData.currency || '$',
+        deliveryAvailable: bizData.deliveryAvailable ?? true,
+        deliveryCost: bizData.deliveryCost ?? 3.0,
+        featuredNotice: bizData.featuredNotice || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-    return newBiz;
+      await DataService.saveBusiness(newBiz);
+      setBusinesses((prev) => {
+        if (prev.some((b) => b.id === newBiz.id)) return prev;
+        return [newBiz, ...prev];
+      });
+      setSelectedBusinessId(newBiz.id);
+
+      // Create default category
+      const defaultCat: Category = {
+        id: 'cat-' + Date.now(),
+        businessId: newBiz.id,
+        name: 'Destacados',
+        description: 'Productos principales del catálogo',
+        icon: 'Star',
+        sortOrder: 1,
+        isActive: true,
+      };
+      await DataService.saveCategory(defaultCat);
+      setCategories((prev) => [...prev, defaultCat]);
+
+      return newBiz;
+    } finally {
+      setTimeout(() => {
+        isCreatingBusinessRef.current = false;
+      }, 700);
+    }
   };
 
   const updateBusiness = async (biz: Business) => {
@@ -527,6 +608,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         goToLanding,
         goToAdmin,
         goToPublicStore,
+        openBusinessWebsite,
         setSelectedBusinessId,
         createBusiness,
         updateBusiness,

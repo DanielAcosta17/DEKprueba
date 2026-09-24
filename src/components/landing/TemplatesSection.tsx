@@ -13,7 +13,7 @@ import { AVAILABLE_TEMPLATES } from '../../data/initialData';
 import { useBusiness } from '../../contexts/BusinessContext';
 
 export const TemplatesSection: React.FC = () => {
-  const { businesses, goToPublicStore } = useBusiness();
+  const { businesses, openBusinessWebsite } = useBusiness();
 
   const iconMap: Record<string, any> = {
     UtensilsCrossed,
@@ -89,7 +89,7 @@ export const TemplatesSection: React.FC = () => {
                 <div className="pt-5 mt-5 border-t border-slate-700/70">
                   {matchingBiz ? (
                     <button
-                      onClick={() => goToPublicStore(matchingBiz.slug)}
+                      onClick={() => openBusinessWebsite(matchingBiz)}
                       className="w-full py-2.5 px-4 rounded-xl text-xs font-bold border border-sky-500/40 text-sky-200 bg-sky-950/40 hover:bg-sky-600/20 hover:text-white transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <span>Ver ejemplo: {matchingBiz.name}</span>

@@ -55,6 +55,10 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
   const [editingBiz, setEditingBiz] = useState<Business | null>(null);
   const [qrBiz, setQrBiz] = useState<Business | null>(null);
 
+  // Duplication guard & destination selector
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [linkDestinationType, setLinkDestinationType] = useState<'external' | 'internal'>('external');
+
   // Deletion Modal States (replaces window.confirm)
   const [businessToDelete, setBusinessToDelete] = useState<Business | null>(null);
   const [isDeletingBiz, setIsDeletingBiz] = useState(false);
@@ -92,12 +96,13 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
   const openCreateModal = () => {
     setEditingBiz(null);
+    setLinkDestinationType('external');
     setFormData({
       name: '',
       slug: '',
       businessType: 'Restaurante / Cafetería',
-      tagline: 'Lo mejor en sabor y calidad',
-      description: 'Bienvenido a nuestro menú digital interactivo.',
+      tagline: 'Lo mejor en calidad y atención',
+      description: 'Bienvenido a nuestro sitio web oficial.',
       websiteUrl: '',
       logoUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=300&auto=format&fit=crop&q=80',
       coverUrl: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&auto=format&fit=crop&q=80',
@@ -120,7 +125,12 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
   const openEditModal = (biz: Business) => {
     setEditingBiz(biz);
-    setFormData({ websiteUrl: '', ...biz, slug: extractCleanSlug(biz.slug) });
+    setLinkDestinationType(biz.websiteUrl && biz.websiteUrl.trim() ? 'external' : 'internal');
+    setFormData({
+      ...biz,
+      websiteUrl: biz.websiteUrl || '',
+      slug: extractCleanSlug(biz.slug),
+    });
     setIsModalOpen(true);
   };
 
@@ -140,17 +150,31 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
     }));
   };
 
+  // Handles external URL input without mangling
+  const handleExternalUrlChange = (val: string) => {
+    const cleanSlug = extractCleanSlug(val);
+    setFormData((prev) => ({
+      ...prev,
+      websiteUrl: val,
+      slug: cleanSlug || prev.slug || (prev.name ? extractCleanSlug(prev.name) : 'negocio'),
+    }));
+  };
+
   // Extracts and sanitizes input when user types or pastes a slug or full URL
   const handleSlugInputChange = (inputVal: string) => {
-    // If input looks like a URL, hash, path or contains spaces/symbols, extract the clean slug
+    // If input is a full URL, switch to external mode
+    if (/^(?:https?:)?\/\//i.test(inputVal) || inputVal.includes('.vercel.app') || inputVal.includes('.com')) {
+      setLinkDestinationType('external');
+      handleExternalUrlChange(inputVal);
+      return;
+    }
+
     if (
       inputVal.includes('/') ||
       inputVal.includes('#') ||
       inputVal.includes('?') ||
       inputVal.includes(':') ||
-      inputVal.includes(' ') ||
-      inputVal.includes('.') ||
-      /^(?:https?:)?\/\//i.test(inputVal)
+      inputVal.includes(' ')
     ) {
       const cleaned = extractCleanSlug(inputVal);
       setFormData((prev) => ({
@@ -158,10 +182,7 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
         slug: cleaned,
       }));
     } else {
-      // Normal typing: keep lowercased, allow letters, numbers, and hyphens without prematurely trimming
-      const sanitized = inputVal
-        .toLowerCase()
-        .replace(/[^a-z0-9-_]/g, '-');
+      const sanitized = inputVal.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
       setFormData((prev) => ({
         ...prev,
         slug: sanitized,
@@ -211,32 +232,57 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent, andNavigate = false) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!formData.name?.trim()) return;
 
-    const finalSlug = extractCleanSlug(formData.slug || formData.name || 'negocio');
-    const preparedData = {
-      ...formData,
-      slug: finalSlug,
-    };
+    setIsSubmitting(true);
+    try {
+      let finalSlug = extractCleanSlug(formData.slug || formData.name || 'negocio');
+      if (!finalSlug && formData.websiteUrl) {
+        finalSlug = extractCleanSlug(formData.websiteUrl);
+      }
+      if (!finalSlug) finalSlug = 'negocio-' + Date.now();
 
-    let targetSlug = finalSlug;
+      let normalizedWebsiteUrl = formData.websiteUrl?.trim() || '';
+      if (normalizedWebsiteUrl && !/^https?:\/\//i.test(normalizedWebsiteUrl)) {
+        normalizedWebsiteUrl = `https://${normalizedWebsiteUrl}`;
+      }
 
-    if (editingBiz) {
-      const updated = {
-        ...editingBiz,
-        ...(preparedData as Business),
+      const preparedData: Partial<Business> = {
+        ...formData,
+        slug: finalSlug,
+        websiteUrl: linkDestinationType === 'external' ? normalizedWebsiteUrl : (formData.websiteUrl || ''),
       };
-      await updateBusiness(updated);
-      targetSlug = updated.slug;
-    } else {
-      const created = await createBusiness(preparedData);
-      targetSlug = created.slug;
-    }
 
-    setIsModalOpen(false);
+      let savedBiz: Business;
 
-    if (andNavigate) {
-      goToPublicStore(targetSlug);
+      if (editingBiz) {
+        const updated = {
+          ...editingBiz,
+          ...(preparedData as Business),
+        };
+        await updateBusiness(updated);
+        savedBiz = updated;
+      } else {
+        savedBiz = await createBusiness(preparedData);
+      }
+
+      setIsModalOpen(false);
+
+      if (andNavigate) {
+        if (savedBiz.websiteUrl && savedBiz.websiteUrl.trim()) {
+          const targetUrl = savedBiz.websiteUrl.startsWith('http')
+            ? savedBiz.websiteUrl
+            : `https://${savedBiz.websiteUrl}`;
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          goToPublicStore(savedBiz.slug);
+        }
+      }
+    } catch (err) {
+      console.error('Error saving business:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -266,9 +312,26 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
   // Direct URL navigation submit
   const handleDirectNavigation = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!directUrlQuery.trim()) return;
-    const clean = extractCleanSlug(directUrlQuery);
-    if (clean) {
+    const query = directUrlQuery.trim();
+    if (!query) return;
+
+    // If query is an external web URL (e.g. https://ejemplo-3-sage.vercel.app/)
+    if (/^(?:https?:)?\/\//i.test(query)) {
+      const fullUrl = query.startsWith('//') ? `https:${query}` : query;
+      window.open(fullUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Otherwise find matching business by slug or open internal store
+    const clean = extractCleanSlug(query);
+    const matched = businesses.find(
+      (b) => extractCleanSlug(b.slug) === clean || b.slug.toLowerCase() === clean.toLowerCase() || b.id === clean
+    );
+
+    if (matched && matched.websiteUrl && matched.websiteUrl.trim()) {
+      const fullUrl = matched.websiteUrl.startsWith('http') ? matched.websiteUrl : `https://${matched.websiteUrl}`;
+      window.open(fullUrl, '_blank', 'noopener,noreferrer');
+    } else if (clean) {
       goToPublicStore(clean);
     }
   };
@@ -484,24 +547,47 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
                   <div className="p-4 space-y-3 text-xs">
                     {/* Interactive Public URL Badge */}
                     <div className="p-2.5 rounded-xl bg-[#0b121b] border border-sky-900/40 flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => goToPublicStore(biz.slug)}
-                        className="flex items-center gap-1.5 text-left text-sky-300 hover:text-white group truncate cursor-pointer transition-colors"
-                        title="Hacer clic para ir directamente a la página del negocio"
-                      >
-                        <Link2 className="w-3.5 h-3.5 text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
-                        <span className="text-[11px] font-mono font-bold truncate">
-                          /#negocio/{biz.slug}
-                        </span>
-                        <ExternalLink className="w-3 h-3 text-sky-400 opacity-70 group-hover:opacity-100 shrink-0" />
-                      </button>
+                      {biz.websiteUrl ? (
+                        <a
+                          href={biz.websiteUrl.startsWith('http') ? biz.websiteUrl : `https://${biz.websiteUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-left text-emerald-300 hover:text-emerald-100 group truncate cursor-pointer transition-colors"
+                          title={`Abrir página web de ${biz.name}`}
+                        >
+                          <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
+                          <span className="text-[11px] font-mono font-bold truncate">
+                            {biz.websiteUrl}
+                          </span>
+                          <ExternalLink className="w-3 h-3 text-emerald-400 opacity-70 group-hover:opacity-100 shrink-0" />
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => goToPublicStore(biz.slug)}
+                          className="flex items-center gap-1.5 text-left text-sky-300 hover:text-white group truncate cursor-pointer transition-colors"
+                          title="Hacer clic para ir directamente a la página del negocio"
+                        >
+                          <Link2 className="w-3.5 h-3.5 text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
+                          <span className="text-[11px] font-mono font-bold truncate">
+                            /#negocio/{biz.slug}
+                          </span>
+                          <ExternalLink className="w-3 h-3 text-sky-400 opacity-70 group-hover:opacity-100 shrink-0" />
+                        </button>
+                      )}
 
                       <button
                         type="button"
-                        onClick={() => copyToClipboard(publicUrl, biz.id)}
+                        onClick={() =>
+                          copyToClipboard(
+                            biz.websiteUrl
+                              ? (biz.websiteUrl.startsWith('http') ? biz.websiteUrl : `https://${biz.websiteUrl}`)
+                              : publicUrl,
+                            biz.id
+                          )
+                        }
                         className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-sky-300 hover:text-white shrink-0 transition-colors cursor-pointer"
-                        title="Copiar enlace completo del negocio"
+                        title="Copiar enlace del negocio"
                       >
                         {isCopied ? (
                           <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
@@ -558,14 +644,27 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
                     >
                       <QrCode className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => goToPublicStore(biz.slug)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-950/80 hover:bg-sky-900 border border-sky-800/60 text-sky-300 hover:text-white rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
-                      title="Abrir Sitio Público del Negocio"
-                    >
-                      <span>Ver Sitio</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
-                    </button>
+                    {biz.websiteUrl ? (
+                      <a
+                        href={biz.websiteUrl.startsWith('http') ? biz.websiteUrl : `https://${biz.websiteUrl}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 hover:text-white rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                        title="Abrir Sitio Web Oficial"
+                      >
+                        <span>Ver Web</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => goToPublicStore(biz.slug)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-950/80 hover:bg-sky-900 border border-sky-800/60 text-sky-300 hover:text-white rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                        title="Abrir Catálogo Digital"
+                      >
+                        <span>Ver Sitio</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -621,103 +720,204 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
 
             {/* Form Content */}
             <form onSubmit={(e) => handleSubmit(e, false)} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-              {/* Row 1: Name and Slug */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-semibold text-sky-200 mb-1">
-                    Nombre del Negocio *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Dulce Encanto Pastelería"
-                    value={formData.name || ''}
-                    onChange={(e) => handleNameChange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-semibold text-sky-200">
-                      Enlace / Slug Público (URL) *
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handlePasteClipboard(null, (val) => handleSlugInputChange(val), true)}
-                      className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
-                      title="Pegar enlace o URL copiada del portapapeles"
-                    >
-                      <ClipboardPaste className="w-3 h-3 text-sky-400" />
-                      <span>Pegar Link</span>
-                    </button>
-                  </div>
-                  <div className="flex items-center bg-[#0f1722] border border-slate-700 rounded-xl px-2.5 focus-within:ring-1 focus-within:ring-sky-400 focus-within:border-sky-500 transition-all">
-                    <span className="text-sky-400 text-[11px] font-mono shrink-0 select-none">/negocio/</span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="dulce-encanto"
-                      value={formData.slug || ''}
-                      onChange={(e) => handleSlugInputChange(e.target.value)}
-                      onPaste={(e) => {
-                        const text = e.clipboardData.getData('text');
-                        if (text) {
-                          e.preventDefault();
-                          handleSlugInputChange(text);
-                        }
-                      }}
-                      className="w-full px-1.5 py-2 bg-transparent text-white font-mono focus:outline-none"
-                    />
-                  </div>
-                </div>
+              {/* Row 1: Name */}
+              <div>
+                <label className="block font-semibold text-sky-200 mb-1">
+                  Nombre del Negocio o Cliente *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Dulce Encanto Pastelería, Mi Tienda Vercel, etc."
+                  value={formData.name || ''}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400 text-xs"
+                />
               </div>
 
-              {/* Direct Link Preview & Redirection within Form */}
-              <div className="p-3 rounded-xl bg-[#090e15] border border-sky-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <div className="p-1.5 rounded-lg bg-sky-950 text-sky-400 shrink-0">
-                    <Link2 className="w-3.5 h-3.5" />
+              {/* Destination Type & URL / Link Selector */}
+              <div className="p-3.5 rounded-2xl bg-[#0b131d] border border-sky-800/40 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold text-white block">
+                      ¿Dónde está la página web de este negocio?
+                    </span>
+                    <span className="text-[11px] text-sky-300">
+                      Elige si enlazas a una página externa (Vercel, dominio) o al menú digital integrado
+                    </span>
                   </div>
-                  <div className="overflow-hidden">
-                    <span className="text-[10px] text-sky-400 font-bold block uppercase tracking-wider">
-                      Enlace directo de acceso:
-                    </span>
-                    <span className="text-[11px] font-mono text-white truncate block">
-                      {getFullPublicUrl(formData.slug)}
-                    </span>
+
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-[#16222f] border border-slate-700 self-start sm:self-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setLinkDestinationType('external')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        linkDestinationType === 'external'
+                          ? 'bg-emerald-500 text-slate-950 shadow'
+                          : 'text-sky-300 hover:text-white'
+                      }`}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Web Externa (Vercel / URL)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLinkDestinationType('internal')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        linkDestinationType === 'internal'
+                          ? 'bg-sky-500 text-slate-950 shadow'
+                          : 'text-sky-300 hover:text-white'
+                      }`}
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>Menú NovaCore</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(getFullPublicUrl(formData.slug), 'form-preview')}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    {copyFeedback === 'form-preview' ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span className="text-emerald-400">¡Copiado!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span>Copiar Enlace</span>
-                      </>
-                    )}
-                  </button>
+                {/* Input depending on destination type */}
+                {linkDestinationType === 'external' ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-emerald-300 text-xs">
+                        Enlace / URL de la Página Web Externa *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handlePasteClipboard(null, (val) => handleExternalUrlChange(val))}
+                        className="text-[10px] text-emerald-300 hover:text-white font-bold flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-950 border border-emerald-800 hover:bg-emerald-900 transition-colors cursor-pointer"
+                        title="Pegar URL completa copiada"
+                      >
+                        <ClipboardPaste className="w-3 h-3 text-emerald-400" />
+                        <span>Pegar URL</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center bg-[#0f1722] border border-emerald-700/60 rounded-xl px-3 focus-within:ring-1 focus-within:ring-emerald-400 focus-within:border-emerald-500 transition-all">
+                      <Globe className="w-4 h-4 text-emerald-400 shrink-0 mr-2" />
+                      <input
+                        type="url"
+                        placeholder="https://ejemplo-3-sage.vercel.app/"
+                        value={formData.websiteUrl || ''}
+                        onChange={(e) => handleExternalUrlChange(e.target.value)}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData('text');
+                          if (text) {
+                            e.preventDefault();
+                            handleExternalUrlChange(text);
+                          }
+                        }}
+                        className="w-full py-2 bg-transparent text-white font-mono text-xs focus:outline-none placeholder:text-slate-600"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Pega aquí enlaces como: <code className="text-emerald-300">https://ejemplo-3-sage.vercel.app/</code>
+                    </span>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-sky-200 text-xs">
+                        Enlace / Slug del Menú Digital en NovaCore *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handlePasteClipboard(null, (val) => handleSlugInputChange(val), true)}
+                        className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
+                        title="Pegar enlace del portapapeles"
+                      >
+                        <ClipboardPaste className="w-3 h-3 text-sky-400" />
+                        <span>Pegar Link</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center bg-[#0f1722] border border-slate-700 rounded-xl px-2.5 focus-within:ring-1 focus-within:ring-sky-400 focus-within:border-sky-500 transition-all">
+                      <span className="text-sky-400 text-[11px] font-mono shrink-0 select-none">/negocio/</span>
+                      <input
+                        type="text"
+                        placeholder="dulce-encanto"
+                        value={formData.slug || ''}
+                        onChange={(e) => handleSlugInputChange(e.target.value)}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData('text');
+                          if (text) {
+                            e.preventDefault();
+                            handleSlugInputChange(text);
+                          }
+                        }}
+                        className="w-full px-1.5 py-2 bg-transparent text-white font-mono text-xs focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
-                  <button
-                    type="button"
-                    disabled={!formData.slug}
-                    onClick={(e) => handleSubmit(e, true)}
-                    className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 text-[11px] font-black flex items-center gap-1 shadow transition-all cursor-pointer"
-                    title="Ir directamente a la página del negocio"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>Abrir Página</span>
-                  </button>
+                {/* Direct Link Preview & Redirection Box */}
+                <div className="p-3 rounded-xl bg-[#0f1722] border border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="p-1.5 rounded-lg bg-slate-800 text-emerald-400 shrink-0">
+                      {linkDestinationType === 'external' ? (
+                        <Globe className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Link2 className="w-4 h-4 text-sky-400" />
+                      )}
+                    </div>
+                    <div className="overflow-hidden">
+                      <span className="text-[10px] font-bold block uppercase tracking-wider text-emerald-400">
+                        {linkDestinationType === 'external'
+                          ? 'Destino de Redirección Web:'
+                          : 'Enlace del Catálogo Integrado:'}
+                      </span>
+                      <span className="text-[11px] font-mono text-white truncate block">
+                        {linkDestinationType === 'external'
+                          ? (formData.websiteUrl || 'https://ejemplo-3-sage.vercel.app/')
+                          : getFullPublicUrl(formData.slug)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyToClipboard(
+                          linkDestinationType === 'external'
+                            ? (formData.websiteUrl || '')
+                            : getFullPublicUrl(formData.slug),
+                          'form-preview'
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      {copyFeedback === 'form-preview' ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400">¡Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (linkDestinationType === 'external' && formData.websiteUrl) {
+                          const target = formData.websiteUrl.startsWith('http')
+                            ? formData.websiteUrl
+                            : `https://${formData.websiteUrl}`;
+                          window.open(target, '_blank', 'noopener,noreferrer');
+                        } else if (formData.slug) {
+                          goToPublicStore(formData.slug);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black flex items-center gap-1 shadow transition-all cursor-pointer"
+                      title="Probar y abrir página web"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Abrir Página Web</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -885,57 +1085,6 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
                 </div>
               </div>
 
-              {/* External Website / Link */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-semibold text-sky-200">
-                    Enlace de Sitio Web Externo / Dominio Propio (Opcional)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => handlePasteClipboard(null, (val) => setFormData((prev) => ({ ...prev, websiteUrl: val })))}
-                    className="text-[10px] text-sky-300 hover:text-white font-bold flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800/80 hover:bg-sky-900 transition-colors cursor-pointer"
-                    title="Pegar enlace de sitio web"
-                  >
-                    <ClipboardPaste className="w-2.5 h-2.5 text-sky-400" />
-                    <span>Pegar URL</span>
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-sky-400">
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <input
-                      type="text"
-                      inputMode="url"
-                      placeholder="https://tudominio.com o https://misitio.com"
-                      value={formData.websiteUrl || ''}
-                      onChange={(e) => setFormData({ ...formData, websiteUrl: e.target.value })}
-                      onPaste={(e) => {
-                        const text = e.clipboardData.getData('text');
-                        if (text) {
-                          e.preventDefault();
-                          setFormData((prev) => ({ ...prev, websiteUrl: text.trim() }));
-                        }
-                      }}
-                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-700 bg-[#0f1722] text-white focus:outline-none focus:ring-1 focus:ring-sky-400 text-xs"
-                    />
-                  </div>
-                  {formData.websiteUrl && (
-                    <a
-                      href={formData.websiteUrl.startsWith('http') ? formData.websiteUrl : `https://${formData.websiteUrl}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2.5 rounded-xl bg-slate-800 text-sky-300 hover:text-white border border-slate-700 shrink-0"
-                      title="Probar enlace"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  )}
-                </div>
-              </div>
-
               {/* Address and Schedule */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -1036,26 +1185,32 @@ export const BusinessManagerView: React.FC<BusinessManagerViewProps> = ({
               <div className="pt-4 border-t border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setIsModalOpen(false)}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-sky-300 hover:text-white hover:bg-slate-800 font-semibold cursor-pointer text-center"
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-sky-300 hover:text-white hover:bg-slate-800 font-semibold cursor-pointer text-center disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
                   <button
                     type="button"
-                    disabled={!formData.name?.trim()}
+                    disabled={isSubmitting || !formData.name?.trim()}
                     onClick={(e) => handleSubmit(e, true)}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-white font-bold rounded-xl border border-sky-800/60 shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-white font-bold rounded-xl border border-sky-800/60 shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                   >
-                    <span>Guardar y Visitar Sitio</span>
+                    <span>{isSubmitting ? 'Guardando...' : 'Guardar y Visitar Sitio'}</span>
                     <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
                   </button>
                   <button
                     type="submit"
-                    className="w-full sm:w-auto px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-xl shadow-md transition-all cursor-pointer"
+                    disabled={isSubmitting || !formData.name?.trim()}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-40"
                   >
-                    {editingBiz ? 'Guardar Cambios' : 'Crear Negocio Ahora'}
+                    {isSubmitting
+                      ? 'Guardando...'
+                      : editingBiz
+                      ? 'Guardar Cambios'
+                      : 'Crear Negocio Ahora'}
                   </button>
                 </div>
               </div>

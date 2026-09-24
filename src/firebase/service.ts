@@ -104,13 +104,15 @@ export const DataService = {
       try {
         const snap = await getDocs(collection(db, 'businesses'));
         const list = snap.docs.map((d) => d.data() as Business);
-        setLocalData(LOCAL_STORAGE_KEYS.BUSINESSES, list);
-        return list;
+        const unique = Array.from(new Map(list.map((b) => [b.id, b])).values());
+        setLocalData(LOCAL_STORAGE_KEYS.BUSINESSES, unique);
+        return unique;
       } catch (err) {
         handleFirestoreError(err, OperationType.GET, 'businesses');
       }
     }
-    return getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []);
+    const local = getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []);
+    return Array.from(new Map(local.map((b) => [b.id, b])).values());
   },
 
   subscribeBusinesses(callback: (businesses: Business[]) => void): Unsubscribe {
@@ -120,19 +122,22 @@ export const DataService = {
           collection(db, 'businesses'),
           (snap) => {
             const list = snap.docs.map((d) => d.data() as Business);
-            setLocalData(LOCAL_STORAGE_KEYS.BUSINESSES, list);
-            callback(list);
+            const unique = Array.from(new Map(list.map((b) => [b.id, b])).values());
+            setLocalData(LOCAL_STORAGE_KEYS.BUSINESSES, unique);
+            callback(unique);
           },
           (err) => {
             console.warn('[Firestore Live] Error en listener businesses:', err);
-            callback(getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []));
+            const local = getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []);
+            callback(Array.from(new Map(local.map((b) => [b.id, b])).values()));
           }
         );
       } catch (e) {
         console.warn('Error starting onSnapshot businesses', e);
       }
     }
-    callback(getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []));
+    const local = getLocalData<Business>(LOCAL_STORAGE_KEYS.BUSINESSES, []);
+    callback(Array.from(new Map(local.map((b) => [b.id, b])).values()));
     return () => {};
   },
 
